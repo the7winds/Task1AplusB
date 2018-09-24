@@ -7,7 +7,6 @@
 #include <iostream>
 #include <fstream>
 #include <memory>
-#include <unistd.h>
 
 template <typename T>
 std::string to_string(T value)
@@ -68,9 +67,7 @@ int main()
     // И хорошо бы сразу добавить в конце clReleaseQueue
 
     cl_command_queue queue = clCreateCommandQueue(context, deviceIds[0], 0, &err);
-    if (err != CL_SUCCESS) {
-        throw std::runtime_error("can't create command queue");
-    }
+    OCL_SAFE_CALL(err);
 
     unsigned int n = 100*1000*1000;
     // Создаем два массива псевдослучайных данных для сложения и массив для будущего хранения результата
@@ -91,17 +88,11 @@ int main()
     // или же через метод Buffer Objects -> clEnqueueWriteBuffer
     // И хорошо бы сразу добавить в конце clReleaseMemObject (аналогично все дальнейшие ресурсы вроде OpenCL под-программы, кернела и т.п. тоже нужно освобождать)
     cl_mem a = clCreateBuffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, 4 * n, as.data(), &err);
-    if (err != CL_SUCCESS) {
-        throw std::runtime_error("can't load a");
-    }
+    OCL_SAFE_CALL(err);
     cl_mem b = clCreateBuffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, 4 * n, bs.data(), &err);
-    if (err != CL_SUCCESS) {
-        throw std::runtime_error("can't load b");
-    }
+    OCL_SAFE_CALL(err);
     cl_mem c = clCreateBuffer(context, CL_MEM_WRITE_ONLY, 4 * n, nullptr, &err);
-    if (err != CL_SUCCESS) {
-        throw std::runtime_error("can't create c");
-    }
+    OCL_SAFE_CALL(err);
 
     // TODO 6 Выполните TODO 5 (реализуйте кернел в src/cl/aplusb.cl)
     // затем убедитесь что выходит загрузить его с диска (убедитесь что Working directory выставлена правильно - см. описание задания)
@@ -122,9 +113,7 @@ int main()
     const char* c_kernel_sources = kernel_sources.c_str();
     size_t pathlen = kernel_sources.length();
     cl_program program = clCreateProgramWithSource(context, 1, &c_kernel_sources, &pathlen, &err);
-    if (err != CL_SUCCESS) {
-        throw std::runtime_error("can't create program");
-    }
+    OCL_SAFE_CALL(err);
 
     // TODO 8 Теперь скомпилируйте программу и напечатайте в консоль лог компиляции
     // см. clBuildProgram
@@ -144,9 +133,7 @@ int main()
     // TODO 9 Создайте OpenCL-kernel в созданной подпрограмме (в одной подпрограмме может быть несколько кернелов, но в данном случае кернел один)
     // см. подходящую функцию в Runtime APIs -> Program Objects -> Kernel Objects
     cl_kernel kernel = clCreateKernel(program, "aplusb", &err);
-    if (err != CL_SUCCESS) {
-        throw std::runtime_error("can't create kernel");
-    }
+    OCL_SAFE_CALL(err);
 
     // TODO 10 Выставите все аргументы в кернеле через clSetKernelArg (as_gpu, bs_gpu, cs_gpu и число значений, убедитесь что тип количества элементов такой же в кернеле)
     {
@@ -189,7 +176,7 @@ int main()
         // - Флопс - это число операций с плавающей точкой в секунду
         // - В гигафлопсе 10^9 флопсов
         // - Среднее время выполнения кернела равно t.lapAvg() секунд
-        std::cout << "GFlops: " << n / t.lapAvg() / (1000 * 1000 * 1000) << std::endl;
+        std::cout << "GFlops: " << (float) n / t.lapAvg() / (1000 * 1000 * 1000) << std::endl;
 
         // TODO 14 Рассчитайте используемую пропускную способность обращений к видеопамяти (в гигабайтах в секунду)
         // - Всего элементов в массивах по n штук
@@ -197,7 +184,7 @@ int main()
         // - Обращений к видеопамяти т.о. 2*n*sizeof(float) байт на чтение и 1*n*sizeof(float) байт на запись, т.е. итого 3*n*sizeof(float) байт
         // - В гигабайте 1024*1024*1024 байт
         // - Среднее время выполнения кернела равно t.lapAvg() секунд
-        std::cout << "VRAM bandwidth: " << 3 * (sizeof(float) * n / (1 << 9)) / t.lapAvg() << " GB/s" << std::endl;
+        std::cout << "VRAM bandwidth: " << (double) 3 * (sizeof(float) * n) / (1 << 30) / t.lapAvg() << " GB/s" << std::endl;
     }
 
     // TODO 15 Скачайте результаты вычислений из видеопамяти (VRAM) в оперативную память (RAM) - из cs_gpu в cs (и рассчитайте скорость трансфера данных в гигабайтах в секунду)
@@ -209,7 +196,7 @@ int main()
             t.nextLap();
         }
         std::cout << "Result data transfer time: " << t.lapAvg() << "+-" << t.lapStd() << " s" << std::endl;
-        std::cout << "VRAM -> RAM bandwidth: " << 0 << " GB/s" << std::endl;
+        std::cout << "VRAM -> RAM bandwidth: " << (double) n * 4 / (1 << 30) / t.lapAvg() << " GB/s" << std::endl;
     }
 
     // TODO 16 Сверьте результаты вычислений со сложением чисел на процессоре (и убедитесь, что если в кернеле сделать намеренную ошибку, то эта проверка поймает ошибку)
@@ -219,6 +206,14 @@ int main()
             throw std::runtime_error("CPU and GPU results differ!");
         }
     }
+
+    clReleaseKernel(kernel);
+    clReleaseMemObject(a);
+    clReleaseMemObject(b);
+    clReleaseMemObject(c);
+    clReleaseProgram(program);
+    clReleaseCommandQueue(queue);
+    clReleaseContext(context);
 
     return 0;
 }
